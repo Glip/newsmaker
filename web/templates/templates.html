@@ -1,0 +1,36 @@
+{{define "templates.html"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Шаблоны · Newsmaker</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="wrap">
+    <section>
+      <h1>Шаблоны</h1>
+      <p class="muted">Плейсхолдеры: <code>{{"{{title}}"}}</code>, <code>{{"{{body}}"}}</code>, <code>{{"{{date}}"}}</code></p>
+      <form method="post" action="/templates" class="card-form">
+        <label>Название<input name="name" required></label>
+        <label>Тело<textarea name="body" rows="8" required></textarea></label>
+        <button type="submit">Добавить</button>
+      </form>
+      <div class="tpl-list">
+      {{range .Templates}}
+        <article>
+          <h3>{{.Name}}</h3>
+          <pre>{{.Body}}</pre>
+          <form method="post" action="/templates/{{.ID}}/delete"><button type="submit">Удалить</button></form>
+        </article>
+      {{else}}
+        <p class="muted">Шаблонов нет</p>
+      {{end}}
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

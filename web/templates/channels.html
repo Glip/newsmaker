@@ -1,0 +1,71 @@
+{{define "channels.html"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Каналы · Newsmaker</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="wrap">
+    <section>
+      <h1>Каналы</h1>
+      {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+      <form method="post" action="/channels" class="card-form">
+        <h2>Добавить</h2>
+        <label>Платформа
+          <select name="platform" required>
+            <option value="telegram">Telegram (bot token + chat id)</option>
+            <option value="discord">Discord (webhook URL)</option>
+            <option value="lolka">LOLKA (webhook URL)</option>
+            <option value="max">MAX (bot token + chat id)</option>
+            <option value="vk">VK (user token админа + owner_id)</option>
+          </select>
+        </label>
+        <label>Имя<input name="name" required placeholder="Новости TG"></label>
+        <label>Target ID / chat / owner / ссылка
+          <input name="target_id" placeholder="Discord/LOLKA: https://…/channels/server/channel/message">
+        </label>
+        <label>Credential (token / webhook URL)<input name="credential" required placeholder="LOLKA: https://lolka.app/api/webhooks/id/token"></label>
+        <p class="muted">Discord / LOLKA: в Target — ссылка на <strong>любое</strong> сообщение канала (для ссылок в истории). Credential — URL вебхука.</p>
+        <p class="muted">VK: нужен <strong>user</strong>-токен админа (не ключ сообщества). Standalone + oauth.vk.com. Для фото и аудио: <code>scope=photos,offline,groups,docs</code> (bitmask <code>458756</code>). Target: <code>-group_id</code>.</p>
+        <label class="inline-check"><input type="checkbox" name="enabled" checked> Включён</label>
+        <button type="submit">Сохранить</button>
+      </form>
+      <table>
+        <thead><tr><th>Имя</th><th>Платформа</th><th>Target</th><th>Вкл</th><th></th></tr></thead>
+        <tbody>
+        {{range .Channels}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td>{{platformLabel .Platform}}</td>
+            <td class="target-cell"><code>{{.TargetID}}</code></td>
+            <td>{{yesno .Enabled}}</td>
+            <td class="actions-cell">
+              <details class="channel-edit">
+                <summary>Изменить</summary>
+                <form method="post" action="/channels/{{.ID}}/update" class="channel-edit-form">
+                  <label>Имя<input name="name" required value="{{.Name}}"></label>
+                  <label>Target<input name="target_id" value="{{.TargetID}}" placeholder="Discord: ссылка на сообщение канала"></label>
+                  <label>Credential<input name="credential" placeholder="пусто = не менять" autocomplete="off"></label>
+                  <label class="inline-check"><input type="checkbox" name="enabled" {{if .Enabled}}checked{{end}}> Включён</label>
+                  <button type="submit">Сохранить</button>
+                </form>
+              </details>
+              <form method="post" action="/channels/{{.ID}}/delete" onsubmit="return confirm('Удалить?')">
+                <button type="submit">Удалить</button>
+              </form>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="muted">Пока пусто</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

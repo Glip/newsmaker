@@ -1,0 +1,10 @@
+services:
+  newsmaker:
+    build: .
+    ports:
+      - "18080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

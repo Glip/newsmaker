@@ -1,0 +1,53 @@
+{{define "history.html"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>История · Newsmaker</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="wrap">
+    <section>
+      <h1>История отправок</h1>
+      <p class="muted">Последние публикации и ссылки на посты (где платформа их отдаёт).</p>
+
+      {{range .Jobs}}
+      <article class="history-job">
+        <header>
+          <time>{{.CreatedAt}}</time>
+          <span class="muted">{{.Status}}</span>
+        </header>
+        {{if .PreviewText}}
+        <p class="history-preview">{{.PreviewText}}</p>
+        {{end}}
+        <ul class="history-results">
+          {{range .Results}}
+          <li class="{{if .OK}}ok{{else}}err{{end}}">
+            <span class="preview-platform">{{platformLabel .Platform}}</span>
+            <strong>{{.ChannelName}}</strong>
+            {{if .OK}}
+              {{if .PostURL}}
+                <a href="{{.PostURL}}" target="_blank" rel="noopener">открыть пост</a>
+              {{else if .MessageRef}}
+                <span class="muted">ref: {{.MessageRef}}</span>
+              {{else}}
+                <span class="muted">ok</span>
+              {{end}}
+            {{else}}
+              <span class="error">{{.Error}}</span>
+            {{end}}
+          </li>
+          {{end}}
+        </ul>
+      </article>
+      {{else}}
+      <p class="muted">Пока пусто — отправьте первый пост.</p>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

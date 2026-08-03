@@ -1,0 +1,21 @@
+{{define "login.html"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход · Newsmaker</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <form class="login-card" method="post" action="/login">
+    <h1>Newsmaker</h1>
+    <p class="muted">Вход для оператора</p>
+    {{if .Error}}<p class="error">Неверный логин или пароль</p>{{end}}
+    <label>Логин<input name="username" autocomplete="username" required></label>
+    <label>Пароль<input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">Войти</button>
+  </form>
+</body>
+</html>
+{{end}}

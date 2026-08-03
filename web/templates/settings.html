@@ -1,0 +1,29 @@
+{{define "settings.html"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Настройки · Newsmaker</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="wrap">
+    <section>
+      <h1>Настройки</h1>
+      {{if .Msg}}<p class="ok">{{.Msg}}</p>{{end}}
+      <form method="post" action="/settings" class="card-form">
+        <label>Подпись (добавляется в конец поста)
+          <textarea name="signature" rows="5" placeholder="— Редакция">{{.Signature}}</textarea>
+        </label>
+        <h2>Смена пароля</h2>
+        <label>Текущий пароль<input type="password" name="current_password" autocomplete="current-password"></label>
+        <label>Новый пароль<input type="password" name="new_password" autocomplete="new-password"></label>
+        <button type="submit">Сохранить</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

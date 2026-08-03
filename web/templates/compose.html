@@ -1,0 +1,77 @@
+{{define "compose.html"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compose · Newsmaker</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="wrap">
+    <section class="compose">
+      <h1>Новый пост</h1>
+      <p class="muted">Выберите каналы, напишите текст, приложите медиа и отправьте.</p>
+      <div class="grid">
+        <div>
+          <h2>Каналы</h2>
+          <div class="channel-list" id="channels">
+            {{range .Channels}}
+              {{if .Enabled}}
+              <label class="chip">
+                <input type="checkbox" name="channel" value="{{.ID}}" data-platform="{{.Platform}}" data-name="{{.Name}}">
+                <span>{{platformLabel .Platform}}</span>
+                <strong>{{.Name}}</strong>
+              </label>
+              {{end}}
+            {{else}}
+              <p class="muted">Нет каналов. <a href="/channels">Добавить</a></p>
+            {{end}}
+          </div>
+          <h2>Текст</h2>
+          <div class="toolbar">
+            <button type="button" data-wrap="<b>" data-wrap-end="</b>" title="Жирный">B</button>
+            <button type="button" data-wrap="<i>" data-wrap-end="</i>" title="Курсив">I</button>
+            <button type="button" data-wrap="<code>" data-wrap-end="</code>" title="Код">&lt;/&gt;</button>
+            <button type="button" data-wrap="<spoiler>" data-wrap-end="</spoiler>" title="Спойлер">S</button>
+            <button type="button" id="btn-link" title="Ссылка">Link</button>
+          </div>
+          <p class="muted">Разметка работает в Telegram, Discord, LOLKA и MAX. На <strong>стене VK</strong> API не поддерживает жирный/курсив — уходит обычный текст; ссылки VK подхватывает из URL.</p>
+          <textarea id="text" rows="12" placeholder="Текст поста. Поддерживается b, i, code, a href, spoiler"></textarea>
+          <div class="row">
+            <label class="inline-check"><input type="checkbox" id="use-signature" checked> Подпись</label>
+            <select id="template-select">
+              <option value="">Шаблон…</option>
+              {{range .Templates}}
+              <option value="{{.ID}}" data-body="{{.Body}}">{{.Name}}</option>
+              {{end}}
+            </select>
+            <button type="button" id="btn-apply-template">Вставить шаблон</button>
+          </div>
+          {{if .Signature}}
+          <pre class="signature-preview">{{.Signature}}</pre>
+          {{end}}
+        </div>
+        <div>
+          <h2>Медиа</h2>
+          <input type="file" id="file" accept="image/*,video/*,audio/*" multiple>
+          <ul id="media-list" class="media-list"></ul>
+          <button type="button" class="primary" id="btn-send">Отправить</button>
+          <div id="status" class="status"></div>
+        </div>
+      </div>
+
+      <section class="preview-block">
+        <h2>Превью каналов</h2>
+        <p class="muted">Как текст и медиа будут выглядеть в выбранных каналах (по правилам каждой платформы).</p>
+        <div id="previews" class="preview-grid">
+          <p class="muted">Выберите канал — появится превью.</p>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}
