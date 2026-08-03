@@ -26,10 +26,10 @@
         </label>
         <label>Имя<input name="name" required placeholder="Новости TG"></label>
         <label>Target ID / chat / owner / ссылка
-          <input name="target_id" placeholder="Discord/LOLKA: https://…/channels/server/channel/message">
+          <input name="target_id" placeholder="LOLKA: https://lolka.app/servers/…/channels/…/…">
         </label>
         <label>Credential (token / webhook URL)<input name="credential" required placeholder="LOLKA: https://lolka.app/api/webhooks/id/token"></label>
-        <p class="muted">Discord / LOLKA: в Target — ссылка на <strong>любое</strong> сообщение канала (для ссылок в истории). Credential — URL вебхука.</p>
+        <p class="muted">Discord: Target — <code>discord.com/channels/…</code>. LOLKA: Target — <code>lolka.app/servers/…/channels/…/…</code>. Credential — URL вебхука.</p>
         <p class="muted">VK: нужен <strong>user</strong>-токен админа (не ключ сообщества). Standalone + oauth.vk.com. Для фото и аудио: <code>scope=photos,offline,groups,docs</code> (bitmask <code>458756</code>). Target: <code>-group_id</code>.</p>
         <label class="inline-check"><input type="checkbox" name="enabled" checked> Включён</label>
         <button type="submit">Сохранить</button>

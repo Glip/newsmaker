@@ -159,7 +159,7 @@ func parseWebhook(resp *http.Response) (string, error) {
 	channel := strings.TrimSpace(string(parsed.ChannelID))
 	if server != "" && channel != "" {
 		if _, err := strconv.ParseUint(id, 10, 64); err == nil {
-			return fmt.Sprintf("https://lolka.app/channels/%s/%s/%s", server, channel, id), nil
+			return fmt.Sprintf("https://lolka.app/servers/%s/channels/%s/%s", server, channel, id), nil
 		}
 	}
 	return id, nil

@@ -13,7 +13,7 @@ import (
 var (
 	reDiscordWebhook     = regexp.MustCompile(`(?i)discord(?:app)?\.com/api/webhooks/(\d+)/`)
 	reDiscordChannelLink = regexp.MustCompile(`(?i)(?:https?://)?(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)(?:/(\d+))?`)
-	reLolkaChannelLink   = regexp.MustCompile(`(?i)(?:https?://)?(?:www\.)?lolka\.app/channels/(\d+)/(\d+)(?:/(\d+))?`)
+	reLolkaChannelLink   = regexp.MustCompile(`(?i)(?:https?://)?(?:www\.)?lolka\.app/servers/(\d+)/channels/(\d+)(?:/(\d+))?`)
 )
 
 // BuildPostURL builds a public permalink when the platform allows it.
@@ -110,7 +110,7 @@ func discordURL(sampleLink, messageRef string) string {
 }
 
 // ParseLolkaChannelLink extracts server and channel ids from a Lolka message/channel URL.
-// Example: https://lolka.app/channels/771223489001/881723489234/98234876234
+// Example: https://lolka.app/servers/690630853756928/channels/690637693962240/820964766368768
 func ParseLolkaChannelLink(s string) (serverID, channelID string, ok bool) {
 	m := reLolkaChannelLink.FindStringSubmatch(strings.TrimSpace(s))
 	if len(m) < 3 || m[1] == "" || m[2] == "" {
@@ -131,7 +131,7 @@ func lolkaURL(sampleLink, messageRef string) string {
 	if _, err := strconv.ParseUint(msgID, 10, 64); err != nil {
 		return ""
 	}
-	return fmt.Sprintf("https://lolka.app/channels/%s/%s/%s", serverID, channelID, msgID)
+	return fmt.Sprintf("https://lolka.app/servers/%s/channels/%s/%s", serverID, channelID, msgID)
 }
 
 // DiscordWebhookChannelHint extracts webhook id (not channel id) — unused for links.

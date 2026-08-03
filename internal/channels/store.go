@@ -14,7 +14,7 @@ import (
 // (Copy Message Link → server_id/channel_id for history URLs).
 var (
 	reDiscordChannelLink = regexp.MustCompile(`(?i)(?:https?://)?(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/\d+/\d+`)
-	reLolkaChannelLink   = regexp.MustCompile(`(?i)(?:https?://)?(?:www\.)?lolka\.app/channels/\d+/\d+`)
+	reLolkaChannelLink   = regexp.MustCompile(`(?i)(?:https?://)?(?:www\.)?lolka\.app/servers/\d+/channels/\d+`)
 	reLolkaWebhookURL    = regexp.MustCompile(`(?i)^https://(?:www\.)?lolka\.app/api/(?:bot/v\d+/)?webhooks/\d+/`)
 )
 
@@ -171,7 +171,7 @@ func validate(c Channel) error {
 			return fmt.Errorf("lolka: укажите ссылку на любое сообщение канала (ПКМ → копировать ссылку)")
 		}
 		if !reLolkaChannelLink.MatchString(t) {
-			return fmt.Errorf("lolka: ожидается ссылка вида https://lolka.app/channels/server/channel/message")
+			return fmt.Errorf("lolka: ожидается ссылка вида https://lolka.app/servers/server/channels/channel/message")
 		}
 		cred := strings.TrimSpace(c.Credential)
 		if !reLolkaWebhookURL.MatchString(cred) {
