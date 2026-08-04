@@ -149,6 +149,20 @@ label { display: block; margin: 0.75rem 0; }
   margin-top: 0.75rem;
 }
 .schedule-row { margin-top: 0.75rem; }
+.repeat-block { display: flex; flex-direction: column; gap: 0.5rem; }
+.repeat-weekdays {
+  display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+}
+.repeat-weekdays label { display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; }
+.cal-post-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.cal-post-repeat {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
 .schedule-label {
   display: flex;
   flex-direction: column;

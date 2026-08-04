@@ -91,6 +91,9 @@ func New(
 			}
 			return t.Local().Format("15:04")
 		},
+		"repeatLabel": func(p schedule.Post) string {
+			return p.RepeatLabel()
+		},
 	}
 	tpl, err := template.New("").Funcs(funcs).ParseGlob(filepath.Join(cfg.WebDir, "templates", "*.html"))
 	if err != nil {
@@ -140,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 		pr.Post("/settings", s.settingsSave)
 		pr.Get("/history", s.historyPage)
 		pr.Get("/schedule", s.schedulePage)
+		pr.Post("/schedule/series/{seriesID}/cancel", s.scheduleCancelSeries)
 		pr.Post("/schedule/{id}/cancel", s.scheduleCancel)
 
 		pr.Post("/api/upload", s.apiUpload)
@@ -400,6 +404,11 @@ type sendRequest struct {
 	} `json:"media"`
 	UseSignature bool   `json:"use_signature"`
 	SendAt       string `json:"send_at,omitempty"` // RFC3339 UTC, for /api/schedule
+	Repeat       *struct {
+		Kind     string `json:"kind"`               // weekly | monthly
+		Weekdays []int  `json:"weekdays,omitempty"` // Mon=1 … Sun=7
+		Until    string `json:"until,omitempty"`    // RFC3339 UTC
+	} `json:"repeat,omitempty"`
 }
 
 func (s *Server) apiSend(w http.ResponseWriter, r *http.Request) {
@@ -447,17 +456,55 @@ func (s *Server) apiSchedule(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	textWithSig := format.AppendSignature(req.Text, s.settings.Get(settings.KeySignature, ""), req.UseSignature)
-	id := uuid.NewString()
+	preview := publish.TruncatePreview(format.Plain(textWithSig), 180)
 	p := schedule.Post{
-		ID:           id,
 		SendAt:       sendAt,
 		Status:       schedule.StatusPending,
 		Text:         req.Text,
 		UseSignature: req.UseSignature,
 		ChannelIDs:   req.ChannelIDs,
 		Media:        media,
-		PreviewText:  publish.TruncatePreview(format.Plain(textWithSig), 180),
+		PreviewText:  preview,
 	}
+
+	if req.Repeat != nil && strings.TrimSpace(req.Repeat.Kind) != "" && strings.TrimSpace(req.Repeat.Kind) != "none" {
+		kind := strings.TrimSpace(req.Repeat.Kind)
+		if kind != schedule.RepeatWeekly && kind != schedule.RepeatMonthly {
+			writeJSON(w, 400, map[string]any{"error": "repeat.kind: weekly или monthly"})
+			return
+		}
+		p.RepeatKind = kind
+		p.RepeatWeekdays = req.Repeat.Weekdays
+		if untilStr := strings.TrimSpace(req.Repeat.Until); untilStr != "" {
+			until, err := time.Parse(time.RFC3339, untilStr)
+			if err != nil {
+				writeJSON(w, 400, map[string]any{"error": "repeat.until: нужен RFC3339 (UTC)"})
+				return
+			}
+			until = until.UTC()
+			if !until.After(sendAt) {
+				writeJSON(w, 400, map[string]any{"error": "repeat.until должен быть позже send_at"})
+				return
+			}
+			p.RepeatUntil = until
+		}
+		seriesID, count, err := s.schedule.CreateSeries(p)
+		if err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{
+			"series_id": seriesID,
+			"count":     count,
+			"send_at":   sendAt.Format(time.RFC3339),
+			"status":    schedule.StatusPending,
+			"repeat":    kind,
+		})
+		return
+	}
+
+	id := uuid.NewString()
+	p.ID = id
 	if err := s.schedule.Create(p); err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
@@ -491,27 +538,46 @@ func (s *Server) schedulePage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) scheduleCancel(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	id := chi.URLParam(r, "id")
-	ym := strings.TrimSpace(r.FormValue("ym"))
+func scheduleRedirect(ym, errMsg, msg string) string {
 	redir := "/schedule"
 	if ym != "" {
 		redir += "?ym=" + url.QueryEscape(ym)
-	}
-	if err := s.schedule.Cancel(id); err != nil {
-		sep := "?"
-		if strings.Contains(redir, "?") {
-			sep = "&"
-		}
-		http.Redirect(w, r, redir+sep+"e="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
 	}
 	sep := "?"
 	if strings.Contains(redir, "?") {
 		sep = "&"
 	}
-	http.Redirect(w, r, redir+sep+"msg="+url.QueryEscape("отменено"), http.StatusSeeOther)
+	if errMsg != "" {
+		return redir + sep + "e=" + url.QueryEscape(errMsg)
+	}
+	if msg != "" {
+		return redir + sep + "msg=" + url.QueryEscape(msg)
+	}
+	return redir
+}
+
+func (s *Server) scheduleCancel(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	id := chi.URLParam(r, "id")
+	ym := strings.TrimSpace(r.FormValue("ym"))
+	if err := s.schedule.Cancel(id); err != nil {
+		http.Redirect(w, r, scheduleRedirect(ym, err.Error(), ""), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, scheduleRedirect(ym, "", "отменено"), http.StatusSeeOther)
+}
+
+func (s *Server) scheduleCancelSeries(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	seriesID := chi.URLParam(r, "seriesID")
+	ym := strings.TrimSpace(r.FormValue("ym"))
+	n, err := s.schedule.CancelSeries(seriesID)
+	if err != nil {
+		http.Redirect(w, r, scheduleRedirect(ym, err.Error(), ""), http.StatusSeeOther)
+		return
+	}
+	msg := fmt.Sprintf("серия отменена (%d)", n)
+	http.Redirect(w, r, scheduleRedirect(ym, "", msg), http.StatusSeeOther)
 }
 
 // ExecuteScheduled is used by the background worker.

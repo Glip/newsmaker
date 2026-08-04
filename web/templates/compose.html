@@ -66,6 +66,27 @@
               <input type="datetime-local" id="send-at">
             </label>
           </div>
+          <div class="schedule-row repeat-block">
+            <label class="schedule-label">Повторять
+              <select id="repeat-kind">
+                <option value="none">Нет</option>
+                <option value="weekly">Еженедельно</option>
+                <option value="monthly">Ежемесячно</option>
+              </select>
+            </label>
+            <div id="repeat-weekdays" class="repeat-weekdays" hidden>
+              <label><input type="checkbox" name="wd" value="1"> пн</label>
+              <label><input type="checkbox" name="wd" value="2"> вт</label>
+              <label><input type="checkbox" name="wd" value="3"> ср</label>
+              <label><input type="checkbox" name="wd" value="4"> чт</label>
+              <label><input type="checkbox" name="wd" value="5"> пт</label>
+              <label><input type="checkbox" name="wd" value="6"> сб</label>
+              <label><input type="checkbox" name="wd" value="7"> вс</label>
+            </div>
+            <label class="schedule-label" id="repeat-until-wrap" hidden>До
+              <input type="datetime-local" id="repeat-until">
+            </label>
+          </div>
           <div class="send-actions">
             <button type="button" class="primary" id="btn-send">Отправить сейчас</button>
             <button type="button" id="btn-schedule">Запланировать</button>
@@ -83,7 +104,7 @@
       </section>
     </section>
   </main>
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>
 {{end}}

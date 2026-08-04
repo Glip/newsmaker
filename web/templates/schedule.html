@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Расписание · Newsmaker</title>
-  <link rel="stylesheet" href="/static/app.css?v=7">
+  <link rel="stylesheet" href="/static/app.css?v=8">
 </head>
 <body>
   {{template "nav" .}}
@@ -39,17 +39,27 @@
               <details class="cal-post status-{{.Status}}">
                 <summary>
                   <span class="cal-post-time">{{fmtClock .SendAt}}</span>
+                  {{if .SeriesID}}<span class="cal-post-repeat" title="{{repeatLabel .}}">повтор</span>{{end}}
                   <span class="cal-post-status">{{.Status}}</span>
                   <span class="cal-post-preview">{{.PreviewText}}</span>
                 </summary>
                 <div class="cal-post-body">
+                  {{if .SeriesID}}<p class="muted">Серия: {{repeatLabel .}}</p>{{end}}
                   {{if .PreviewText}}<p>{{.PreviewText}}</p>{{end}}
                   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
                   {{if eq .Status "pending"}}
-                  <form method="post" action="/schedule/{{.ID}}/cancel" onsubmit="return confirm('Отменить отложенный пост?')">
-                    <input type="hidden" name="ym" value="{{$.Cal.YearMonth}}">
-                    <button type="submit">Отменить</button>
-                  </form>
+                  <div class="cal-post-actions">
+                    <form method="post" action="/schedule/{{.ID}}/cancel" onsubmit="return confirm('Отменить этот пост?')">
+                      <input type="hidden" name="ym" value="{{$.Cal.YearMonth}}">
+                      <button type="submit">Отменить</button>
+                    </form>
+                    {{if .SeriesID}}
+                    <form method="post" action="/schedule/series/{{.SeriesID}}/cancel" onsubmit="return confirm('Отменить всю серию (все будущие даты)?')">
+                      <input type="hidden" name="ym" value="{{$.Cal.YearMonth}}">
+                      <button type="submit">Отменить серию</button>
+                    </form>
+                    {{end}}
+                  </div>
                   {{else if and (eq .Status "done") .JobID}}
                   <p class="muted"><a href="/history">история</a> · {{.JobID}}</p>
                   {{end}}

@@ -332,6 +332,14 @@ document.getElementById("btn-send")?.addEventListener("click", async () => {
     .join("");
 });
 
+document.getElementById("repeat-kind")?.addEventListener("change", () => {
+  const kind = document.getElementById("repeat-kind")?.value || "none";
+  const wd = document.getElementById("repeat-weekdays");
+  const until = document.getElementById("repeat-until-wrap");
+  if (wd) wd.hidden = kind !== "weekly";
+  if (until) until.hidden = kind === "none";
+});
+
 document.getElementById("btn-schedule")?.addEventListener("click", async () => {
   const status = document.getElementById("status");
   const channel_ids = selectedChannels();
@@ -353,6 +361,32 @@ document.getElementById("btn-schedule")?.addEventListener("click", async () => {
     status.innerHTML = `<div class="item err">Время должно быть хотя бы на 30 секунд позже</div>`;
     return;
   }
+  const repeatKind = document.getElementById("repeat-kind")?.value || "none";
+  let repeat = null;
+  if (repeatKind === "weekly" || repeatKind === "monthly") {
+    repeat = { kind: repeatKind };
+    if (repeatKind === "weekly") {
+      const weekdays = [...document.querySelectorAll('input[name="wd"]:checked')].map((el) => Number(el.value));
+      if (!weekdays.length) {
+        status.innerHTML = `<div class="item err">Выберите дни недели</div>`;
+        return;
+      }
+      repeat.weekdays = weekdays;
+    }
+    const untilVal = document.getElementById("repeat-until")?.value;
+    if (untilVal) {
+      const until = new Date(untilVal);
+      if (Number.isNaN(until.getTime())) {
+        status.innerHTML = `<div class="item err">Некорректная дата окончания</div>`;
+        return;
+      }
+      if (until.getTime() <= sendAt.getTime()) {
+        status.innerHTML = `<div class="item err">«До» должно быть позже первой отправки</div>`;
+        return;
+      }
+      repeat.until = until.toISOString();
+    }
+  }
   status.innerHTML = `<div class="item">Планирование…</div>`;
   const payload = {
     text: composeTextEl()?.value || "",
@@ -361,6 +395,7 @@ document.getElementById("btn-schedule")?.addEventListener("click", async () => {
     use_signature: document.getElementById("use-signature")?.checked === true,
     send_at: sendAt.toISOString(),
   };
+  if (repeat) payload.repeat = repeat;
   const res = await fetch("/api/schedule", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -372,7 +407,11 @@ document.getElementById("btn-schedule")?.addEventListener("click", async () => {
     return;
   }
   const when = data.send_at ? new Date(data.send_at).toLocaleString() : localVal;
-  status.innerHTML = `<div class="item ok">Запланировано на ${escapeHtml(when)}. <a href="/schedule">Открыть расписание</a></div>`;
+  if (data.count && data.count > 1) {
+    status.innerHTML = `<div class="item ok">Серия: ${data.count} постов с ${escapeHtml(when)}. <a href="/schedule">Открыть расписание</a></div>`;
+  } else {
+    status.innerHTML = `<div class="item ok">Запланировано на ${escapeHtml(when)}. <a href="/schedule">Открыть расписание</a></div>`;
+  }
 });
 
 schedulePreview();
