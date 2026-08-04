@@ -39,6 +39,10 @@
           </div>
           <p class="muted">Разметка работает в Telegram, Discord, LOLKA и MAX. На <strong>стене VK</strong> API не поддерживает жирный/курсив — уходит обычный текст; ссылки VK подхватывает из URL.</p>
           <textarea id="text" rows="12" placeholder="Текст поста. Поддерживается b, i, code, a href, spoiler"></textarea>
+          <div id="char-count" class="char-count" aria-live="polite">
+            <span id="char-count-value">0</span>
+            <span id="char-count-hint" class="muted"></span>
+          </div>
           <div class="row">
             <label class="inline-check"><input type="checkbox" id="use-signature" checked> Подпись</label>
             <select id="template-select">
@@ -50,7 +54,7 @@
             <button type="button" id="btn-apply-template">Вставить шаблон</button>
           </div>
           {{if .Signature}}
-          <pre class="signature-preview">{{.Signature}}</pre>
+          <pre class="signature-preview" id="signature-text">{{.Signature}}</pre>
           {{end}}
         </div>
         <div>

@@ -95,6 +95,18 @@ textarea, input, select {
   font: inherit;
 }
 textarea { resize: vertical; font-family: var(--mono); line-height: 1.45; }
+.char-count {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  margin: 0.4rem 0 0;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+.char-count #char-count-value { color: var(--ink); font-weight: 600; }
+.char-count.over #char-count-value { color: var(--err); }
+.char-count.warn #char-count-value { color: #d4a017; }
 label { display: block; margin: 0.75rem 0; }
 .toolbar { display: flex; gap: 0.35rem; margin-bottom: 0.5rem; }
 .toolbar button { min-width: 2.2rem; font-weight: 700; }

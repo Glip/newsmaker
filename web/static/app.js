@@ -1,6 +1,12 @@
 const mediaItems = [];
 let previewTimer = null;
 
+// Telegram Bot API: text ≤ 4096, media caption ≤ 1024 (after entities parsing).
+const TG_TEXT_LIMIT = 4096;
+const TG_CAPTION_LIMIT = 1024;
+const DISCORD_LIMIT = 2000;
+const LOLKA_LIMIT = 2000;
+
 function selectedChannelInfos() {
   return [...document.querySelectorAll('input[name="channel"]:checked')].map((el) => ({
     id: Number(el.value),
@@ -11,6 +17,65 @@ function selectedChannelInfos() {
 
 function selectedChannels() {
   return selectedChannelInfos().map((c) => c.id);
+}
+
+function finalComposeText() {
+  let text = (document.getElementById("text")?.value || "").trim();
+  const useSig = document.getElementById("use-signature")?.checked;
+  if (useSig) {
+    const sig = (document.getElementById("signature-text")?.textContent || "").trim();
+    if (sig) text = text ? `${text}\n\n${sig}` : sig;
+  }
+  return text;
+}
+
+/** Plain length after stripping our markup tags — close to Telegram "after entities parsing". */
+function plainCharCount(s) {
+  return s.replace(/<\/?(?:b|i|code|pre|spoiler|a|tg-spoiler)(?:\s[^>]*)?>/gi, "").length;
+}
+
+function updateCharCount() {
+  const box = document.getElementById("char-count");
+  const valueEl = document.getElementById("char-count-value");
+  const hintEl = document.getElementById("char-count-hint");
+  if (!box || !valueEl || !hintEl) return;
+
+  const n = plainCharCount(finalComposeText());
+  const hasMedia = mediaItems.length > 0;
+  const platforms = new Set(selectedChannelInfos().map((c) => c.platform));
+  const parts = [];
+  let over = false;
+  let warn = false;
+
+  if (platforms.has("telegram") || platforms.size === 0) {
+    if (hasMedia) {
+      parts.push(`TG caption ${n}/${TG_CAPTION_LIMIT}`);
+      if (n > TG_CAPTION_LIMIT) over = true;
+      else if (n > TG_CAPTION_LIMIT * 0.9) warn = true;
+    } else {
+      parts.push(`TG текст ${n}/${TG_TEXT_LIMIT}`);
+      if (n > TG_TEXT_LIMIT) over = true;
+      else if (n > TG_TEXT_LIMIT * 0.9) warn = true;
+    }
+  } else {
+    parts.push(`${n} симв.`);
+  }
+  if (platforms.has("discord")) {
+    parts.push(`Discord ${n}/${DISCORD_LIMIT}`);
+    if (n > DISCORD_LIMIT) over = true;
+  }
+  if (platforms.has("lolka")) {
+    parts.push(`LOLKA ${n}/${LOLKA_LIMIT}`);
+    if (n > LOLKA_LIMIT) over = true;
+  }
+  if (hasMedia && (platforms.has("telegram") || platforms.size === 0)) {
+    parts.push("с медиа caption ≤ 1024");
+  }
+
+  valueEl.textContent = String(n);
+  hintEl.textContent = parts.length ? `· ${parts.join(" · ")}` : "";
+  box.classList.toggle("over", over);
+  box.classList.toggle("warn", !over && warn);
 }
 
 function wrapSelection(open, close) {
@@ -72,6 +137,7 @@ function escapeHtml(s) {
 }
 
 async function refreshPreview() {
+  updateCharCount();
   const box = document.getElementById("previews");
   if (!box) return;
   const channels = selectedChannelInfos();
@@ -115,6 +181,7 @@ async function refreshPreview() {
 }
 
 function schedulePreview() {
+  updateCharCount();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(refreshPreview, 200);
 }
