@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Compose · Newsmaker</title>
-  <link rel="stylesheet" href="/static/app.css?v=5">
+  <link rel="stylesheet" href="/static/app.css?v=6">
 </head>
 <body>
   {{template "nav" .}}
@@ -61,7 +61,15 @@
           <h2>Медиа</h2>
           <input type="file" id="file" accept="image/*,video/*,audio/*" multiple>
           <ul id="media-list" class="media-list"></ul>
-          <button type="button" class="primary" id="btn-send">Отправить</button>
+          <div class="schedule-row">
+            <label class="schedule-label">Отложить
+              <input type="datetime-local" id="send-at">
+            </label>
+          </div>
+          <div class="send-actions">
+            <button type="button" class="primary" id="btn-send">Отправить сейчас</button>
+            <button type="button" id="btn-schedule">Запланировать</button>
+          </div>
           <div id="status" class="status"></div>
         </div>
       </div>
@@ -75,7 +83,7 @@
       </section>
     </section>
   </main>
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>
 {{end}}

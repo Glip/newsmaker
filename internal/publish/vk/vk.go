@@ -71,6 +71,7 @@ func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publi
 	form.Set("owner_id", owner)
 	form.Set("from_group", "1")
 	form.Set("message", text)
+	form.Set("primary_attachments_mode", "grid")
 	if len(attachments) > 0 {
 		form.Set("attachments", strings.Join(attachments, ","))
 	}

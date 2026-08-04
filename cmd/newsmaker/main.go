@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"newsmaker/internal/auth"
@@ -21,6 +24,7 @@ import (
 	maxbot "newsmaker/internal/publish/max"
 	"newsmaker/internal/publish/telegram"
 	"newsmaker/internal/publish/vk"
+	"newsmaker/internal/schedule"
 	"newsmaker/internal/settings"
 	"newsmaker/internal/templates"
 )
@@ -42,6 +46,9 @@ func main() {
 	if err := history.EnsureSchema(sqlDB); err != nil {
 		log.Fatal(err)
 	}
+	if err := schedule.EnsureSchema(sqlDB); err != nil {
+		log.Fatal(err)
+	}
 
 	box, err := cryptoutil.NewBox(cfg.Secret)
 	if err != nil {
@@ -56,6 +63,7 @@ func main() {
 	tplStore := templates.NewStore(sqlDB)
 	setStore := settings.NewStore(sqlDB)
 	histStore := history.NewStore(sqlDB)
+	schedStore := schedule.NewStore(sqlDB)
 
 	proc := &media.Processor{
 		FFmpeg: cfg.FFmpeg,
@@ -72,13 +80,31 @@ func main() {
 		},
 	}
 
-	srv, err := httpserver.New(cfg, sqlDB, authSvc, chStore, tplStore, setStore, histStore, dispatch)
+	srv, err := httpserver.New(cfg, sqlDB, authSvc, chStore, tplStore, setStore, histStore, schedStore, dispatch)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	runner := &schedule.Runner{
+		Store:    schedStore,
+		Execute:  srv.ExecuteScheduled,
+		Interval: 15 * time.Second,
+	}
+	runner.Start(ctx)
+
+	httpSrv := &http.Server{Addr: cfg.Addr, Handler: srv.Handler()}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+	}()
+
 	log.Printf("newsmaker listening on %s (data=%s)", cfg.Addr, cfg.DataDir)
-	if err := http.ListenAndServe(cfg.Addr, srv.Handler()); err != nil {
+	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

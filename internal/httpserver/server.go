@@ -26,6 +26,7 @@ import (
 	"newsmaker/internal/history"
 	"newsmaker/internal/media"
 	"newsmaker/internal/publish"
+	"newsmaker/internal/schedule"
 	"newsmaker/internal/settings"
 	"newsmaker/internal/templates"
 )
@@ -37,6 +38,7 @@ type Server struct {
 	templates *templates.Store
 	settings  *settings.Store
 	history   *history.Store
+	schedule  *schedule.Store
 	dispatch  *publish.Dispatcher
 	db        *sql.DB
 	tpl       *template.Template
@@ -52,6 +54,7 @@ func New(
 	tplStore *templates.Store,
 	set *settings.Store,
 	hist *history.Store,
+	sched *schedule.Store,
 	dispatch *publish.Dispatcher,
 ) (*Server, error) {
 	uploads := filepath.Join(cfg.DataDir, "uploads")
@@ -76,6 +79,12 @@ func New(
 			}
 			return "нет"
 		},
+		"fmtTime": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Local().Format("02.01.2006 15:04")
+		},
 	}
 	tpl, err := template.New("").Funcs(funcs).ParseGlob(filepath.Join(cfg.WebDir, "templates", "*.html"))
 	if err != nil {
@@ -88,6 +97,7 @@ func New(
 		templates: tplStore,
 		settings:  set,
 		history:   hist,
+		schedule:  sched,
 		dispatch:  dispatch,
 		db:        db,
 		tpl:       tpl,
@@ -123,11 +133,14 @@ func (s *Server) Handler() http.Handler {
 		pr.Get("/settings", s.settingsPage)
 		pr.Post("/settings", s.settingsSave)
 		pr.Get("/history", s.historyPage)
+		pr.Get("/schedule", s.schedulePage)
+		pr.Post("/schedule/{id}/cancel", s.scheduleCancel)
 
 		pr.Post("/api/upload", s.apiUpload)
 		pr.Get("/api/uploads/{name}", s.apiServeUpload)
 		pr.Post("/api/preview", s.apiPreview)
 		pr.Post("/api/send", s.apiSend)
+		pr.Post("/api/schedule", s.apiSchedule)
 	})
 	return r
 }
@@ -369,9 +382,9 @@ func (s *Server) apiPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 type sendRequest struct {
-	Text              string  `json:"text"`
-	ChannelIDs        []int64 `json:"channel_ids"`
-	Media             []struct {
+	Text       string `json:"text"`
+	ChannelIDs []int64 `json:"channel_ids"`
+	Media      []struct {
 		ID       string `json:"id"`
 		Kind     string `json:"kind"`
 		Path     string `json:"path"`
@@ -379,10 +392,25 @@ type sendRequest struct {
 		MIME     string `json:"mime"`
 		Size     int64  `json:"size"`
 	} `json:"media"`
-	UseSignature bool `json:"use_signature"`
+	UseSignature bool   `json:"use_signature"`
+	SendAt       string `json:"send_at,omitempty"` // RFC3339 UTC, for /api/schedule
 }
 
 func (s *Server) apiSend(w http.ResponseWriter, r *http.Request) {
+	var req sendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "bad json"})
+		return
+	}
+	jobID, results, err := s.executeSend(r.Context(), req, true)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"job_id": jobID, "results": results})
+}
+
+func (s *Server) apiSchedule(w http.ResponseWriter, r *http.Request) {
 	var req sendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]any{"error": "bad json"})
@@ -392,23 +420,112 @@ func (s *Server) apiSend(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{"error": "выберите хотя бы один канал"})
 		return
 	}
-	text := req.Text
-	sig := s.settings.Get(settings.KeySignature, "")
-	text = format.AppendSignature(text, sig, req.UseSignature)
-
-	assets := make([]media.Asset, 0, len(req.Media))
+	sendAt, err := time.Parse(time.RFC3339, strings.TrimSpace(req.SendAt))
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": "send_at: нужен RFC3339 (UTC)"})
+		return
+	}
+	sendAt = sendAt.UTC()
+	if !sendAt.After(time.Now().UTC().Add(30 * time.Second)) {
+		writeJSON(w, 400, map[string]any{"error": "время должно быть хотя бы на 30 секунд позже"})
+		return
+	}
+	media := make([]schedule.MediaItem, 0, len(req.Media))
 	for _, m := range req.Media {
 		if m.Path == "" || !strings.HasPrefix(filepath.Clean(m.Path), filepath.Clean(s.uploads)) {
 			writeJSON(w, 400, map[string]any{"error": "invalid media path"})
 			return
 		}
+		media = append(media, schedule.MediaItem{
+			ID: m.ID, Kind: m.Kind, Path: m.Path, Filename: m.Filename, MIME: m.MIME, Size: m.Size,
+		})
+	}
+	textWithSig := format.AppendSignature(req.Text, s.settings.Get(settings.KeySignature, ""), req.UseSignature)
+	id := uuid.NewString()
+	p := schedule.Post{
+		ID:           id,
+		SendAt:       sendAt,
+		Status:       schedule.StatusPending,
+		Text:         req.Text,
+		UseSignature: req.UseSignature,
+		ChannelIDs:   req.ChannelIDs,
+		Media:        media,
+		PreviewText:  publish.TruncatePreview(format.Plain(textWithSig), 180),
+	}
+	if err := s.schedule.Create(p); err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"id":      id,
+		"send_at": sendAt.Format(time.RFC3339),
+		"status":  schedule.StatusPending,
+	})
+}
+
+func (s *Server) schedulePage(w http.ResponseWriter, r *http.Request) {
+	posts, err := s.schedule.ListRecent(80)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.render(w, "schedule.html", map[string]any{
+		"Title": "Расписание",
+		"Posts": posts,
+		"Error": r.URL.Query().Get("e"),
+		"Msg":   r.URL.Query().Get("msg"),
+	})
+}
+
+func (s *Server) scheduleCancel(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.schedule.Cancel(id); err != nil {
+		http.Redirect(w, r, "/schedule?e="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/schedule?msg="+url.QueryEscape("отменено"), http.StatusSeeOther)
+}
+
+// ExecuteScheduled is used by the background worker.
+func (s *Server) ExecuteScheduled(ctx context.Context, p schedule.Post) (string, error) {
+	req := sendRequest{
+		Text:         p.Text,
+		ChannelIDs:   p.ChannelIDs,
+		UseSignature: p.UseSignature,
+	}
+	for _, m := range p.Media {
+		req.Media = append(req.Media, struct {
+			ID       string `json:"id"`
+			Kind     string `json:"kind"`
+			Path     string `json:"path"`
+			Filename string `json:"filename"`
+			MIME     string `json:"mime"`
+			Size     int64  `json:"size"`
+		}{ID: m.ID, Kind: m.Kind, Path: m.Path, Filename: m.Filename, MIME: m.MIME, Size: m.Size})
+	}
+	jobID, _, err := s.executeSend(ctx, req, false)
+	return jobID, err
+}
+
+// executeSend runs the same path as immediate send. cleanupTmp removes prepared variants after send.
+func (s *Server) executeSend(ctx context.Context, req sendRequest, cleanupTmp bool) (string, []publish.Result, error) {
+	if len(req.ChannelIDs) == 0 {
+		return "", nil, fmt.Errorf("выберите хотя бы один канал")
+	}
+	text := format.AppendSignature(req.Text, s.settings.Get(settings.KeySignature, ""), req.UseSignature)
+
+	assets := make([]media.Asset, 0, len(req.Media))
+	for _, m := range req.Media {
+		if m.Path == "" || !strings.HasPrefix(filepath.Clean(m.Path), filepath.Clean(s.uploads)) {
+			return "", nil, fmt.Errorf("invalid media path")
+		}
+		// Scheduled media must still exist on disk.
+		if _, err := os.Stat(m.Path); err != nil {
+			return "", nil, fmt.Errorf("медиафайл недоступен: %s", m.Filename)
+		}
 		assets = append(assets, media.Asset{
-			ID:       m.ID,
-			Kind:     media.Kind(m.Kind),
-			Path:     m.Path,
-			Filename: m.Filename,
-			MIME:     m.MIME,
-			Size:     m.Size,
+			ID: m.ID, Kind: media.Kind(m.Kind), Path: m.Path,
+			Filename: m.Filename, MIME: m.MIME, Size: m.Size,
 		})
 	}
 
@@ -418,7 +535,7 @@ func (s *Server) apiSend(w http.ResponseWriter, r *http.Request) {
 	preview := publish.TruncatePreview(format.Plain(text), 180)
 	_, _ = s.db.Exec(`INSERT INTO send_jobs(id, payload_json, status, preview_text) VALUES(?,?,?,?)`, jobID, string(payload), "running", preview)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	results := make([]publish.Result, 0, len(req.ChannelIDs))
@@ -435,7 +552,7 @@ func (s *Server) apiSend(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		res := s.dispatch.Send(ctx, ch, post)
+		res := s.dispatch.Send(runCtx, ch, post)
 		results = append(results, res)
 		ok := 0
 		if res.OK {
@@ -446,20 +563,20 @@ func (s *Server) apiSend(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = s.db.Exec(`UPDATE send_jobs SET status=? WHERE id=?`, "done", jobID)
 
-	// cleanup temp variants
-	_ = filepath.Walk(s.tmp, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		for _, a := range assets {
-			if strings.Contains(info.Name(), a.ID) {
-				_ = os.Remove(path)
+	if cleanupTmp {
+		_ = filepath.Walk(s.tmp, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
 			}
-		}
-		return nil
-	})
-
-	writeJSON(w, 200, map[string]any{"job_id": jobID, "results": results})
+			for _, a := range assets {
+				if strings.Contains(info.Name(), a.ID) {
+					_ = os.Remove(path)
+				}
+			}
+			return nil
+		})
+	}
+	return jobID, results, nil
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

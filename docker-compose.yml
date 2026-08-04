@@ -1,6 +1,7 @@
 services:
-  newsmaker:
+  newsmaker-test:
     build: .
+    container_name: newsmaker-test
     ports:
       - "18080:8080"
     env_file:

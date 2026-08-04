@@ -332,4 +332,47 @@ document.getElementById("btn-send")?.addEventListener("click", async () => {
     .join("");
 });
 
+document.getElementById("btn-schedule")?.addEventListener("click", async () => {
+  const status = document.getElementById("status");
+  const channel_ids = selectedChannels();
+  if (!channel_ids.length) {
+    status.innerHTML = `<div class="item err">Выберите канал</div>`;
+    return;
+  }
+  const localVal = document.getElementById("send-at")?.value;
+  if (!localVal) {
+    status.innerHTML = `<div class="item err">Укажите дату и время</div>`;
+    return;
+  }
+  const sendAt = new Date(localVal);
+  if (Number.isNaN(sendAt.getTime())) {
+    status.innerHTML = `<div class="item err">Некорректное время</div>`;
+    return;
+  }
+  if (sendAt.getTime() < Date.now() + 30_000) {
+    status.innerHTML = `<div class="item err">Время должно быть хотя бы на 30 секунд позже</div>`;
+    return;
+  }
+  status.innerHTML = `<div class="item">Планирование…</div>`;
+  const payload = {
+    text: composeTextEl()?.value || "",
+    channel_ids,
+    media: mediaItems,
+    use_signature: document.getElementById("use-signature")?.checked === true,
+    send_at: sendAt.toISOString(),
+  };
+  const res = await fetch("/api/schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    status.innerHTML = `<div class="item err">${escapeHtml(data.error || "error")}</div>`;
+    return;
+  }
+  const when = data.send_at ? new Date(data.send_at).toLocaleString() : localVal;
+  status.innerHTML = `<div class="item ok">Запланировано на ${escapeHtml(when)}. <a href="/schedule">Открыть расписание</a></div>`;
+});
+
 schedulePreview();

@@ -142,6 +142,29 @@ label { display: block; margin: 0.75rem 0; }
 }
 .status .item.ok { border-color: rgba(60, 190, 125, 0.5); }
 .status .item.err { border-color: rgba(232, 93, 93, 0.5); }
+.send-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.schedule-row { margin-top: 0.75rem; }
+.schedule-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.schedule-label input[type="datetime-local"] {
+  width: 100%;
+  max-width: 16rem;
+}
+.ok-msg { color: #3cbe7d; }
+.status-pending { color: #d4a017; }
+.status-sending { color: #2aabee; }
+.status-done { color: #3cbe7d; }
+.status-failed, .status-cancelled { color: var(--err); }
 .card-form {
   background: var(--panel);
   border: 1px solid var(--line);
