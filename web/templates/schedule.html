@@ -5,40 +5,63 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Расписание · Newsmaker</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=7">
 </head>
 <body>
   {{template "nav" .}}
   <main class="wrap">
     <section>
       <h1>Расписание</h1>
-      <p class="muted">Отложенные посты. Воркер проверяет очередь каждые ~15 секунд.</p>
+      <p class="muted">Календарь отложенных постов. Воркер проверяет очередь каждые ~15 секунд.</p>
       {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
       {{if .Msg}}<p class="ok-msg">{{.Msg}}</p>{{end}}
 
-      {{range .Posts}}
-      <article class="history-job">
-        <header>
-          <time>{{fmtTime .SendAt}}</time>
-          <span class="muted status-{{.Status}}">{{.Status}}</span>
-        </header>
-        {{if .PreviewText}}
-        <p class="history-preview">{{.PreviewText}}</p>
+      <div class="cal-nav">
+        <a class="cal-nav-btn" href="/schedule?ym={{.Cal.PrevYM}}">←</a>
+        <h2 class="cal-title">{{.Cal.Title}}</h2>
+        <a class="cal-nav-btn" href="/schedule?ym={{.Cal.NextYM}}">→</a>
+        <a class="cal-today" href="/schedule">сегодня</a>
+      </div>
+
+      <div class="cal-grid">
+        <div class="cal-weekdays">
+          {{range .Cal.Weekdays}}
+          <div class="cal-wd">{{.}}</div>
+          {{end}}
+        </div>
+        {{range .Cal.Weeks}}
+        <div class="cal-week">
+          {{range .}}
+          <div class="cal-day{{if not .InMonth}} other{{end}}{{if .IsToday}} today{{end}}{{if .Posts}} has-posts{{end}}">
+            <div class="cal-day-num">{{.Day}}</div>
+            <div class="cal-day-posts">
+              {{range .Posts}}
+              <details class="cal-post status-{{.Status}}">
+                <summary>
+                  <span class="cal-post-time">{{fmtClock .SendAt}}</span>
+                  <span class="cal-post-status">{{.Status}}</span>
+                  <span class="cal-post-preview">{{.PreviewText}}</span>
+                </summary>
+                <div class="cal-post-body">
+                  {{if .PreviewText}}<p>{{.PreviewText}}</p>{{end}}
+                  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+                  {{if eq .Status "pending"}}
+                  <form method="post" action="/schedule/{{.ID}}/cancel" onsubmit="return confirm('Отменить отложенный пост?')">
+                    <input type="hidden" name="ym" value="{{$.Cal.YearMonth}}">
+                    <button type="submit">Отменить</button>
+                  </form>
+                  {{else if and (eq .Status "done") .JobID}}
+                  <p class="muted"><a href="/history">история</a> · {{.JobID}}</p>
+                  {{end}}
+                </div>
+              </details>
+              {{end}}
+            </div>
+          </div>
+          {{end}}
+        </div>
         {{end}}
-        {{if .Error}}
-        <p class="error">{{.Error}}</p>
-        {{end}}
-        {{if eq .Status "pending"}}
-        <form method="post" action="/schedule/{{.ID}}/cancel" onsubmit="return confirm('Отменить отложенный пост?')">
-          <button type="submit">Отменить</button>
-        </form>
-        {{else if and (eq .Status "done") .JobID}}
-        <p class="muted">job: <a href="/history">{{.JobID}}</a></p>
-        {{end}}
-      </article>
-      {{else}}
-      <p class="muted">Нет запланированных постов. В Compose укажите время и нажмите «Запланировать».</p>
-      {{end}}
+      </div>
     </section>
   </main>
 </body>

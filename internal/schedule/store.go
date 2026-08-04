@@ -180,6 +180,20 @@ func (s *Store) RecoverStuckSending() (int64, error) {
 	return res.RowsAffected()
 }
 
+// ListBetween returns posts with send_at in [from, to) (UTC RFC3339 compare).
+func (s *Store) ListBetween(from, to time.Time) ([]Post, error) {
+	rows, err := s.db.Query(`
+SELECT id, created_at, send_at, status, text, use_signature, channel_ids_json, media_json, preview_text, job_id, error
+FROM scheduled_posts
+WHERE send_at >= ? AND send_at < ?
+ORDER BY send_at ASC`, from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPosts(rows)
+}
+
 // ListRecent returns recent scheduled posts of any status for the schedule page.
 func (s *Store) ListRecent(limit int) ([]Post, error) {
 	if limit <= 0 {

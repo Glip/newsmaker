@@ -85,6 +85,12 @@ func New(
 			}
 			return t.Local().Format("02.01.2006 15:04")
 		},
+		"fmtClock": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Local().Format("15:04")
+		},
 	}
 	tpl, err := template.New("").Funcs(funcs).ParseGlob(filepath.Join(cfg.WebDir, "templates", "*.html"))
 	if err != nil {
@@ -464,26 +470,48 @@ func (s *Server) apiSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) schedulePage(w http.ResponseWriter, r *http.Request) {
-	posts, err := s.schedule.ListRecent(80)
+	now := time.Now()
+	year, month := parseYearMonth(r.URL.Query().Get("ym"), now)
+	loc := now.Location()
+	from := time.Date(year, month, 1, 0, 0, 0, 0, loc)
+	// Include a week before/after so edge posts in adjacent-month cells show up
+	rangeFrom := from.AddDate(0, 0, -7).UTC()
+	rangeTo := from.AddDate(0, 1, 7).UTC()
+	posts, err := s.schedule.ListBetween(rangeFrom, rangeTo)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	cal := buildCalendar(year, month, posts, now)
 	s.render(w, "schedule.html", map[string]any{
 		"Title": "Расписание",
-		"Posts": posts,
+		"Cal":   cal,
 		"Error": r.URL.Query().Get("e"),
 		"Msg":   r.URL.Query().Get("msg"),
 	})
 }
 
 func (s *Server) scheduleCancel(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
 	id := chi.URLParam(r, "id")
+	ym := strings.TrimSpace(r.FormValue("ym"))
+	redir := "/schedule"
+	if ym != "" {
+		redir += "?ym=" + url.QueryEscape(ym)
+	}
 	if err := s.schedule.Cancel(id); err != nil {
-		http.Redirect(w, r, "/schedule?e="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		sep := "?"
+		if strings.Contains(redir, "?") {
+			sep = "&"
+		}
+		http.Redirect(w, r, redir+sep+"e="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/schedule?msg="+url.QueryEscape("отменено"), http.StatusSeeOther)
+	sep := "?"
+	if strings.Contains(redir, "?") {
+		sep = "&"
+	}
+	http.Redirect(w, r, redir+sep+"msg="+url.QueryEscape("отменено"), http.StatusSeeOther)
 }
 
 // ExecuteScheduled is used by the background worker.
