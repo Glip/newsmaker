@@ -1,6 +1,7 @@
 package format
 
 import (
+	"fmt"
 	"html"
 	"net/url"
 	"regexp"
@@ -15,22 +16,53 @@ type PlatformPreview struct {
 }
 
 // Previews builds browser-safe HTML previews for each platform from canonical markup.
-func Previews(canonical string) []PlatformPreview {
+// hasMedia selects Telegram caption (1024) vs text (4096) limit.
+func Previews(canonical string, hasMedia bool) []PlatformPreview {
+	tgMax := TelegramTextLimit
+	tgLimitName := "текст"
+	if hasMedia {
+		tgMax = TelegramCaptionLimit
+		tgLimitName = "caption"
+	}
+	tgCut, tgTrunc := TruncateCanonical(canonical, tgMax)
+	tgNote := ""
+	vis := VisibleUTF16Len(canonical)
+	if tgTrunc {
+		tgNote = fmt.Sprintf("Обрезано до %d символов (лимит Telegram %s). Хвост, включая ссылки в конце, не отправится.", tgMax, tgLimitName)
+	} else if hasMedia && vis >= tgMax*9/10 {
+		tgNote = fmt.Sprintf("Лимит caption с медиа: %d (сейчас %d)", tgMax, vis)
+	}
+
+	dsCut, dsTrunc := FitDiscord(canonical)
+	dsNote := ""
+	if dsTrunc {
+		dsNote = fmt.Sprintf("Обрезано до %d символов (лимит Discord)", DiscordContentLimit)
+	}
+
+	lkCut, lkTrunc := FitLolka(canonical)
+	lkNote := ""
+	if lkTrunc {
+		lkNote = fmt.Sprintf("Обрезано до %d символов (лимит LOLKA)", LolkaContentLimit)
+	}
+
 	return []PlatformPreview{
 		{
 			Platform: "telegram",
 			Label:    "Telegram",
-			HTML:     htmlPreviewFromTags(ForTelegramHTML(canonical), true),
+			HTML:     htmlPreviewFromTags(ForTelegramHTML(tgCut), true),
+			Note:     tgNote,
 		},
 		{
 			Platform: "discord",
 			Label:    "Discord",
-			HTML:     discordMarkdownToPreviewHTML(ForDiscord(canonical)),
+			HTML:     discordMarkdownToPreviewHTML(dsCut),
+			Note:     dsNote,
 		},
 		{
 			Platform: "lolka",
 			Label:    "LOLKA",
-			HTML:     discordMarkdownToPreviewHTML(ForLolka(canonical)),
+			HTML:     discordMarkdownToPreviewHTML(lkCut),
+			Note:     lkNote,
 		},
 		{
 			Platform: "max",

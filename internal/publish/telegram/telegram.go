@@ -34,7 +34,8 @@ func (p *Publisher) client() *http.Client {
 func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publish.Post, prepared []string) (string, error) {
 	token := strings.TrimSpace(ch.Credential)
 	chatID := strings.TrimSpace(ch.TargetID)
-	text := format.ForTelegramHTML(post.TextHTML)
+	hasMedia := len(prepared) > 0
+	text, _ := format.FitTelegram(post.TextHTML, hasMedia)
 
 	if len(prepared) == 0 {
 		return p.api(ctx, token, "sendMessage", map[string]string{

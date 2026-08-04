@@ -62,10 +62,7 @@ func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publi
 	if webhook == "" {
 		return "", fmt.Errorf("lolka: empty webhook url")
 	}
-	content := format.ForLolka(post.TextHTML)
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
+	content, _ := format.FitLolka(post.TextHTML)
 
 	endpoint := withWait(webhook)
 

@@ -353,6 +353,7 @@ func (s *Server) apiPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text         string `json:"text"`
 		UseSignature bool   `json:"use_signature"`
+		HasMedia     bool   `json:"has_media"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]any{"error": "bad json"})
@@ -361,7 +362,9 @@ func (s *Server) apiPreview(w http.ResponseWriter, r *http.Request) {
 	sig := s.settings.Get(settings.KeySignature, "")
 	text := format.AppendSignature(req.Text, sig, req.UseSignature)
 	writeJSON(w, 200, map[string]any{
-		"previews": format.Previews(text),
+		"previews":  format.Previews(text, req.HasMedia),
+		"plain_len": format.VisibleUTF16Len(text),
+		"tg_limit":  map[string]any{"caption": format.TelegramCaptionLimit, "text": format.TelegramTextLimit, "has_media": req.HasMedia},
 	})
 }
 

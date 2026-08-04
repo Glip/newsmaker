@@ -274,6 +274,10 @@ code, pre { font-family: var(--mono); }
   font-size: 0.85rem;
   color: var(--muted);
 }
+.preview-note.trunc {
+  color: var(--err);
+  font-weight: 600;
+}
 .preview-media-row {
   display: flex;
   flex-wrap: wrap;

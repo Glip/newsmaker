@@ -1,11 +1,15 @@
 const mediaItems = [];
 let previewTimer = null;
 
-// Telegram Bot API: text ≤ 4096, media caption ≤ 1024 (after entities parsing).
+// Telegram Bot API: text ≤ 4096, media caption ≤ 1024 (UTF-16 / after entities).
 const TG_TEXT_LIMIT = 4096;
 const TG_CAPTION_LIMIT = 1024;
 const DISCORD_LIMIT = 2000;
 const LOLKA_LIMIT = 2000;
+
+function composeTextEl() {
+  return document.getElementById("compose-text");
+}
 
 function selectedChannelInfos() {
   return [...document.querySelectorAll('input[name="channel"]:checked')].map((el) => ({
@@ -20,7 +24,7 @@ function selectedChannels() {
 }
 
 function finalComposeText() {
-  let text = (document.getElementById("text")?.value || "").trim();
+  let text = (composeTextEl()?.value || "").trim();
   const useSig = document.getElementById("use-signature")?.checked;
   if (useSig) {
     const sig = (document.getElementById("signature-text")?.textContent || "").trim();
@@ -29,25 +33,51 @@ function finalComposeText() {
   return text;
 }
 
-/** Plain length after stripping our markup tags — close to Telegram "after entities parsing". */
+/** Strip tags; .length is UTF-16 code units (Telegram-compatible for BMP). */
 function plainCharCount(s) {
-  return s.replace(/<\/?(?:b|i|code|pre|spoiler|a|tg-spoiler)(?:\s[^>]*)?>/gi, "").length;
+  return String(s).replace(/<[^>]*>/g, "").length;
 }
 
-function updateCharCount() {
+function truncatePlain(s, max) {
+  const plain = String(s).replace(/<[^>]*>/g, "");
+  if (plain.length <= max) return { html: null, truncated: false, plain };
+  return {
+    html: escapeHtml(plain.slice(0, Math.max(0, max - 1))) + "…",
+    truncated: true,
+    plain: plain.slice(0, Math.max(0, max - 1)) + "…",
+  };
+}
+
+function platformLimit(platform, hasMedia) {
+  switch (platform) {
+    case "telegram":
+      return hasMedia ? TG_CAPTION_LIMIT : TG_TEXT_LIMIT;
+    case "discord":
+      return DISCORD_LIMIT;
+    case "lolka":
+      return LOLKA_LIMIT;
+    default:
+      return 0;
+  }
+}
+
+function updateCharCount(n) {
   const box = document.getElementById("char-count");
   const valueEl = document.getElementById("char-count-value");
   const hintEl = document.getElementById("char-count-hint");
   if (!box || !valueEl || !hintEl) return;
 
-  const n = plainCharCount(finalComposeText());
+  if (typeof n !== "number") {
+    n = plainCharCount(finalComposeText());
+  }
   const hasMedia = mediaItems.length > 0;
   const platforms = new Set(selectedChannelInfos().map((c) => c.platform));
   const parts = [];
   let over = false;
   let warn = false;
 
-  if (platforms.has("telegram") || platforms.size === 0) {
+  const showTG = platforms.has("telegram") || platforms.size === 0;
+  if (showTG) {
     if (hasMedia) {
       parts.push(`TG caption ${n}/${TG_CAPTION_LIMIT}`);
       if (n > TG_CAPTION_LIMIT) over = true;
@@ -68,9 +98,6 @@ function updateCharCount() {
     parts.push(`LOLKA ${n}/${LOLKA_LIMIT}`);
     if (n > LOLKA_LIMIT) over = true;
   }
-  if (hasMedia && (platforms.has("telegram") || platforms.size === 0)) {
-    parts.push("с медиа caption ≤ 1024");
-  }
 
   valueEl.textContent = String(n);
   hintEl.textContent = parts.length ? `· ${parts.join(" · ")}` : "";
@@ -79,7 +106,8 @@ function updateCharCount() {
 }
 
 function wrapSelection(open, close) {
-  const ta = document.getElementById("text");
+  const ta = composeTextEl();
+  if (!ta) return;
   const start = ta.selectionStart;
   const end = ta.selectionEnd;
   const value = ta.value;
@@ -109,7 +137,8 @@ document.getElementById("btn-apply-template")?.addEventListener("click", () => {
   const textBody = prompt("body", "") ?? "";
   const date = new Date().toISOString().slice(0, 10);
   body = body.replaceAll("{{title}}", title).replaceAll("{{body}}", textBody).replaceAll("{{date}}", date);
-  const ta = document.getElementById("text");
+  const ta = composeTextEl();
+  if (!ta) return;
   ta.value = ta.value ? ta.value + "\n\n" + body : body;
   schedulePreview();
 });
@@ -145,18 +174,36 @@ async function refreshPreview() {
     box.innerHTML = `<p class="muted">Выберите канал — появится превью.</p>`;
     return;
   }
-  const res = await fetch("/api/preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: document.getElementById("text").value,
-      use_signature: document.getElementById("use-signature").checked,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    box.innerHTML = `<p class="error">${escapeHtml(data.error || "preview error")}</p>`;
+  const ta = composeTextEl();
+  const hasMedia = mediaItems.length > 0;
+  const sourceText = finalComposeText();
+  let data = {};
+  try {
+    const res = await fetch("/api/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: ta ? ta.value : "",
+        use_signature: document.getElementById("use-signature")?.checked === true,
+        has_media: hasMedia,
+      }),
+    });
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      box.innerHTML = `<p class="error">Превью: нужна авторизация (обновите страницу)</p>`;
+      return;
+    }
+    data = await res.json();
+    if (!res.ok) {
+      box.innerHTML = `<p class="error">${escapeHtml(data.error || "preview error")}</p>`;
+      return;
+    }
+  } catch (err) {
+    box.innerHTML = `<p class="error">Превью недоступно: ${escapeHtml(err.message || String(err))}</p>`;
     return;
+  }
+  if (typeof data.plain_len === "number") {
+    updateCharCount(data.plain_len);
   }
   const byPlatform = {};
   for (const p of data.previews || []) {
@@ -166,15 +213,30 @@ async function refreshPreview() {
   box.innerHTML = channels
     .map((ch) => {
       const p = byPlatform[ch.platform] || { label: ch.platform, html: "", note: "" };
-      const note = p.note ? `<p class="preview-note">${escapeHtml(p.note)}</p>` : "";
+      const limit = platformLimit(ch.platform, hasMedia);
+      let html = p.html || "";
+      let note = p.note || "";
+      if (limit > 0) {
+        const cut = truncatePlain(sourceText, limit);
+        if (cut.truncated) {
+          const serverPlain = plainCharCount((html || "").replace(/<br\s*\/?>/gi, "\n"));
+          if (!note || serverPlain > limit) {
+            html = cut.html;
+            const kind = ch.platform === "telegram" && hasMedia ? "caption" : "текст";
+            note = `Обрезано до ${limit} символов (лимит ${p.label || ch.platform} ${kind}). Хвост, включая ссылки в конце, не отправится.`;
+          }
+        }
+      }
+      const noteClass = note && /Обрезано/.test(note) ? "preview-note trunc" : "preview-note";
+      const noteHtml = note ? `<p class="${noteClass}">${escapeHtml(note)}</p>` : "";
       return `<article class="preview-card platform-${escapeHtml(ch.platform)}">
         <header>
           <span class="preview-platform">${escapeHtml(p.label || ch.platform)}</span>
           <strong>${escapeHtml(ch.name)}</strong>
         </header>
         ${media}
-        <div class="preview-body">${p.html || ""}</div>
-        ${note}
+        <div class="preview-body">${html}</div>
+        ${noteHtml}
       </article>`;
     })
     .join("");
@@ -186,7 +248,11 @@ function schedulePreview() {
   previewTimer = setTimeout(refreshPreview, 200);
 }
 
-document.getElementById("text")?.addEventListener("input", schedulePreview);
+const ta = composeTextEl();
+if (ta) {
+  ta.addEventListener("input", schedulePreview);
+  ta.addEventListener("change", schedulePreview);
+}
 document.getElementById("use-signature")?.addEventListener("change", schedulePreview);
 document.querySelectorAll('input[name="channel"]').forEach((el) => {
   el.addEventListener("change", schedulePreview);
@@ -228,10 +294,10 @@ document.getElementById("btn-send")?.addEventListener("click", async () => {
   }
   status.innerHTML = `<div class="item">Отправка…</div>`;
   const payload = {
-    text: document.getElementById("text").value,
+    text: composeTextEl()?.value || "",
     channel_ids,
     media: mediaItems,
-    use_signature: document.getElementById("use-signature").checked,
+    use_signature: document.getElementById("use-signature")?.checked === true,
   };
   const res = await fetch("/api/send", {
     method: "POST",

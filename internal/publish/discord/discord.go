@@ -58,10 +58,7 @@ func (p *Publisher) client() *http.Client {
 
 func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publish.Post, prepared []string) (string, error) {
 	webhook := strings.TrimSpace(ch.Credential)
-	content := format.ForDiscord(post.TextHTML)
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
+	content, _ := format.FitDiscord(post.TextHTML)
 
 	if len(prepared) == 0 {
 		payload, _ := json.Marshal(map[string]string{"content": content})

@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Compose · Newsmaker</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=5">
 </head>
 <body>
   {{template "nav" .}}
@@ -38,9 +38,9 @@
             <button type="button" id="btn-link" title="Ссылка">Link</button>
           </div>
           <p class="muted">Разметка работает в Telegram, Discord, LOLKA и MAX. На <strong>стене VK</strong> API не поддерживает жирный/курсив — уходит обычный текст; ссылки VK подхватывает из URL.</p>
-          <textarea id="text" rows="12" placeholder="Текст поста. Поддерживается b, i, code, a href, spoiler"></textarea>
+          <textarea id="compose-text" rows="12" placeholder="Текст поста. Поддерживается b, i, code, a href, spoiler"></textarea>
           <div id="char-count" class="char-count" aria-live="polite">
-            <span id="char-count-value">0</span>
+            <strong id="char-count-value">0</strong>
             <span id="char-count-hint" class="muted"></span>
           </div>
           <div class="row">
@@ -68,14 +68,14 @@
 
       <section class="preview-block">
         <h2>Превью каналов</h2>
-        <p class="muted">Как текст и медиа будут выглядеть в выбранных каналах (по правилам каждой платформы).</p>
+        <p class="muted">Как текст и медиа будут выглядеть в выбранных каналах. Длинный текст обрезается по лимитам платформы.</p>
         <div id="previews" class="preview-grid">
           <p class="muted">Выберите канал — появится превью.</p>
         </div>
       </section>
     </section>
   </main>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>
 {{end}}
