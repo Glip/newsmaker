@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -149,20 +148,12 @@ func (p *Publisher) uploadPhoto(ctx context.Context, token, owner, path string) 
 	if len(fileBytes) == 0 {
 		return "", fmt.Errorf("vk upload photo: empty file %s", path)
 	}
-	filename := "photo.jpg"
-	if ext := strings.ToLower(filepath.Ext(path)); hasImageExt(path) {
-		filename = "photo" + ext
-	}
 
+	// VK wall upload is picky: only .jpg/.png in the multipart filename.
+	// Always send a safe ASCII name — original upload names (spaces, unicode) are irrelevant.
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="photo"; filename="%s"`, filename))
-	h.Set("Content-Type", "image/jpeg")
-	if strings.HasSuffix(filename, ".png") {
-		h.Set("Content-Type", "image/png")
-	}
-	part, err := w.CreatePart(h)
+	part, err := w.CreateFormFile("photo", "photo.jpg")
 	if err != nil {
 		return "", err
 	}
@@ -199,7 +190,7 @@ func (p *Publisher) uploadPhoto(ctx context.Context, token, owner, path string) 
 	}
 	photoParam := strings.TrimSpace(uploaded.Photo)
 	if photoParam == "" || photoParam == "[]" || photoParam == "null" {
-		return "", fmt.Errorf("vk upload photo empty (need .jpg/.png filename): %s", string(upBody))
+		return "", fmt.Errorf("vk upload photo empty (%d bytes, %s): %s", len(fileBytes), filepath.Base(path), string(upBody))
 	}
 
 	save := url.Values{}
@@ -238,15 +229,6 @@ func (p *Publisher) uploadPhoto(ctx context.Context, token, owner, path string) 
 	}
 	ph := saved.Response[0]
 	return fmt.Sprintf("photo%d_%d", ph.OwnerID, ph.ID), nil
-}
-
-func hasImageExt(name string) bool {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
-		return true
-	default:
-		return false
-	}
 }
 
 func (p *Publisher) uploadVideo(ctx context.Context, token, owner, path, name string) (string, error) {

@@ -332,7 +332,7 @@ func (s *Server) apiUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	id := uuid.NewString()
-	ext := filepath.Ext(hdr.Filename)
+	ext := safeUploadExt(hdr.Filename, hdr.Header.Get("Content-Type"))
 	dst := filepath.Join(s.uploads, id+ext)
 	n, err := media.CopyUpload(file, dst)
 	if err != nil {
@@ -708,5 +708,44 @@ func isVideoExt(ext string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// safeUploadExt normalizes the on-disk extension (no spaces/odd chars).
+func safeUploadExt(filename, contentType string) string {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(filename)))
+	ext = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' {
+			return r
+		}
+		return -1
+	}, ext)
+	switch ext {
+	case ".jpeg":
+		return ".jpg"
+	case ".jpg", ".png", ".gif", ".webp",
+		".mp4", ".mov", ".mkv", ".webm", ".avi",
+		".mp3", ".ogg", ".flac", ".wav", ".m4a", ".aac":
+		return ext
+	}
+	ct := strings.ToLower(contentType)
+	switch {
+	case strings.HasPrefix(ct, "image/png"):
+		return ".png"
+	case strings.HasPrefix(ct, "image/webp"):
+		return ".webp"
+	case strings.HasPrefix(ct, "image/gif"):
+		return ".gif"
+	case strings.HasPrefix(ct, "image/"):
+		return ".jpg"
+	case strings.HasPrefix(ct, "video/"):
+		return ".mp4"
+	case strings.HasPrefix(ct, "audio/"):
+		return ".mp3"
+	default:
+		if ext != "" && strings.HasPrefix(ext, ".") && len(ext) <= 8 {
+			return ext
+		}
+		return ".bin"
 	}
 }
