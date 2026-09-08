@@ -43,6 +43,10 @@ func (s *snowflake) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// suppressEmbeds is Discord MessageFlags.SUPPRESS_EMBEDS (1 << 2).
+// It disables automatic link previews (embeds) on webhook messages.
+const suppressEmbeds = 4
+
 type Publisher struct {
 	Client *http.Client
 }
@@ -60,8 +64,9 @@ func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publi
 	webhook := strings.TrimSpace(ch.Credential)
 	content, _ := format.FitDiscord(post.TextHTML)
 
+	payload := webhookPayload(content)
+
 	if len(prepared) == 0 {
-		payload, _ := json.Marshal(map[string]string{"content": content})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook+"?wait=true", bytes.NewReader(payload))
 		if err != nil {
 			return "", err
@@ -77,7 +82,6 @@ func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publi
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	payload, _ := json.Marshal(map[string]string{"content": content})
 	_ = w.WriteField("payload_json", string(payload))
 	for i, path := range prepared {
 		f, err := os.Open(path)
@@ -107,6 +111,14 @@ func (p *Publisher) Publish(ctx context.Context, ch channels.Channel, post publi
 	}
 	defer resp.Body.Close()
 	return parseWebhook(resp)
+}
+
+func webhookPayload(content string) []byte {
+	payload, _ := json.Marshal(map[string]any{
+		"content": content,
+		"flags":   suppressEmbeds,
+	})
+	return payload
 }
 
 func parseWebhook(resp *http.Response) (string, error) {
