@@ -229,6 +229,13 @@ async function refreshPreview() {
       }
       const noteClass = note && /Обрезано/.test(note) ? "preview-note trunc" : "preview-note";
       const noteHtml = note ? `<p class="${noteClass}">${escapeHtml(note)}</p>` : "";
+      const videoNote = platformVideoNote(ch.platform);
+      const videoBad = mediaItems.some((m) =>
+        (m.video_limits || []).some((l) => l.platform === ch.platform && l.can_fit === false)
+      );
+      const videoHtml = videoNote
+        ? `<p class="${videoBad ? "preview-note trunc" : "preview-note warn"}">${escapeHtml(videoNote)}</p>`
+        : "";
       return `<article class="preview-card platform-${escapeHtml(ch.platform)}">
         <header>
           <span class="preview-platform">${escapeHtml(p.label || ch.platform)}</span>
@@ -237,13 +244,71 @@ async function refreshPreview() {
         ${media}
         <div class="preview-body">${html}</div>
         ${noteHtml}
+        ${videoHtml}
       </article>`;
     })
     .join("");
 }
 
+function formatMB(bytes) {
+  const mb = Number(bytes) / (1024 * 1024);
+  if (!Number.isFinite(mb)) return "";
+  const rounded = Math.round(mb * 10) / 10;
+  if (Number.isInteger(rounded)) return `${rounded.toFixed(0)} МБ`;
+  return `${rounded.toFixed(1)} МБ`;
+}
+
+function relevantVideoLimits(item) {
+  const limits = (item && item.video_limits) || [];
+  const selected = selectedChannelInfos();
+  if (!selected.length) return limits;
+  const platforms = new Set(selected.map((c) => c.platform));
+  return limits.filter((l) => platforms.has(l.platform));
+}
+
+function videoWarningText(item) {
+  if (!item || item.kind !== "video") return "";
+  const limits = relevantVideoLimits(item);
+  if (!limits.length) return "";
+  const size = formatMB(item.size);
+  const cannot = limits.filter((l) => l.can_fit === false);
+  const list = (rows) => rows.map((l) => `${l.label} (${formatMB(l.max_bytes)})`).join(", ");
+  if (cannot.length) {
+    return `Видео ${size} не помещается в ${list(cannot)} даже после сжатия. Укоротите ролик.`;
+  }
+  return `Видео ${size} больше лимита: ${list(limits)}. Перед отправкой оно будет сжато под лимит.`;
+}
+
+function platformVideoNote(platform) {
+  const notes = [];
+  for (const m of mediaItems) {
+    if (m.kind !== "video") continue;
+    const lim = (m.video_limits || []).find((l) => l.platform === platform);
+    if (!lim) continue;
+    if (lim.can_fit === false) {
+      notes.push(`Видео ${formatMB(m.size)} не помещается в лимит ${formatMB(lim.max_bytes)} даже после сжатия. Укоротите ролик.`);
+    } else {
+      notes.push(`Видео ${formatMB(m.size)} больше лимита ${formatMB(lim.max_bytes)} — перед отправкой будет сжато.`);
+    }
+  }
+  return notes.join(" ");
+}
+
+function updateMediaWarnings() {
+  document.querySelectorAll("#media-list li").forEach((li) => {
+    const item = mediaItems.find((m) => m.id === li.dataset.id);
+    const el = li.querySelector(".media-warn");
+    if (!el || !item) return;
+    const msg = videoWarningText(item);
+    el.textContent = msg;
+    el.hidden = !msg;
+    el.classList.toggle("bad", relevantVideoLimits(item).some((l) => l.can_fit === false));
+  });
+}
+
 function schedulePreview() {
   updateCharCount();
+  updateMediaWarnings();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(refreshPreview, 200);
 }
@@ -272,7 +337,9 @@ document.getElementById("file")?.addEventListener("change", async (e) => {
     }
     mediaItems.push(data);
     const li = document.createElement("li");
-    li.innerHTML = `<span>${data.kind}: ${data.filename}</span><button type="button">×</button>`;
+    li.dataset.id = data.id;
+    const size = data.size ? ` · ${formatMB(data.size)}` : "";
+    li.innerHTML = `<div class="media-main"><span>${escapeHtml(data.kind)}: ${escapeHtml(data.filename)}${size}</span><p class="media-warn" hidden></p></div><button type="button">×</button>`;
     li.querySelector("button").addEventListener("click", () => {
       const idx = mediaItems.findIndex((m) => m.id === data.id);
       if (idx >= 0) mediaItems.splice(idx, 1);

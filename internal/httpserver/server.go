@@ -347,7 +347,7 @@ func (s *Server) apiUpload(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(ct, "audio/") || media.IsAudioExt(ext):
 		kind = media.KindAudio
 	}
-	writeJSON(w, 200, map[string]any{
+	resp := map[string]any{
 		"id":       id,
 		"kind":     kind,
 		"filename": hdr.Filename,
@@ -355,7 +355,17 @@ func (s *Server) apiUpload(w http.ResponseWriter, r *http.Request) {
 		"size":     n,
 		"path":     dst,
 		"url":      "/api/uploads/" + id + ext,
-	})
+	}
+	if kind == media.KindVideo {
+		var duration float64
+		if s.dispatch != nil && s.dispatch.Media != nil {
+			if d, err := s.dispatch.Media.ProbeDuration(dst); err == nil {
+				duration = d
+			}
+		}
+		resp["video_limits"] = media.VideoLimitReport(n, duration)
+	}
+	writeJSON(w, 200, resp)
 }
 
 func (s *Server) apiServeUpload(w http.ResponseWriter, r *http.Request) {
@@ -392,7 +402,7 @@ func (s *Server) apiPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 type sendRequest struct {
-	Text       string `json:"text"`
+	Text       string  `json:"text"`
 	ChannelIDs []int64 `json:"channel_ids"`
 	Media      []struct {
 		ID       string `json:"id"`

@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"golang.org/x/image/draw"
@@ -99,6 +101,47 @@ func (p *Processor) PreparePhoto(src Asset, platform string) (string, error) {
 	return out, nil
 }
 
+const (
+	videoAudioBitrate = 96_000
+	minVideoBitrate   = 120_000
+	// Headroom so muxing and x264 overshoot stay under the platform cap.
+	videoSizeMargin = 0.90
+)
+
+// VideoLimit is a platform whose file cap the upload exceeds.
+type VideoLimit struct {
+	Platform string `json:"platform"`
+	Label    string `json:"label"`
+	MaxBytes int64  `json:"max_bytes"`
+	Over     bool   `json:"over"`
+	CanFit   bool   `json:"can_fit"`
+}
+
+// VideoLimitReport lists platforms where size is over the video cap.
+// durationSec 0 means duration is unknown: CanFit stays true and encode will try.
+func VideoLimitReport(size int64, durationSec float64) []VideoLimit {
+	order := []string{"discord", "telegram", "lolka", "max", "vk"}
+	out := make([]VideoLimit, 0)
+	for _, platform := range order {
+		lim := DefaultLimits(platform)
+		if size <= lim.MaxBytes {
+			continue
+		}
+		canFit := true
+		if durationSec > 0 {
+			_, canFit = fitVideoBitrate(lim.MaxBytes, durationSec, videoAudioBitrate)
+		}
+		out = append(out, VideoLimit{
+			Platform: platform,
+			Label:    platformName(platform),
+			MaxBytes: lim.MaxBytes,
+			Over:     true,
+			CanFit:   canFit,
+		})
+	}
+	return out
+}
+
 func (p *Processor) PrepareVideo(src Asset, platform string) (string, error) {
 	lim := DefaultLimits(platform)
 	info, err := os.Stat(src.Path)
@@ -108,34 +151,201 @@ func (p *Processor) PrepareVideo(src Asset, platform string) (string, error) {
 	if info.Size() <= lim.MaxBytes && looksCompatibleVideo(src.MIME, src.Filename) {
 		return src.Path, nil
 	}
-	if p.FFmpeg == "" {
-		p.FFmpeg = "ffmpeg"
-	}
 	if err := os.MkdirAll(p.TmpDir, 0o755); err != nil {
 		return "", err
 	}
-	out := filepath.Join(p.TmpDir, src.ID+"_"+platform+".mp4")
-	args := []string{
-		"-y", "-i", src.Path,
-		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", lim.VideoMaxW),
-		"-c:v", "libx264", "-preset", "veryfast", "-b:v", lim.VideoBitrate,
-		"-c:a", "aac", "-b:a", "128k",
-		"-movflags", "+faststart",
-		out,
+	probe, probeErr := p.probeMedia(src.Path)
+	audioBps := videoAudioBitrate
+	withAudio := true
+	if probeErr == nil && !probe.HasAudio {
+		audioBps = 0
+		withAudio = false
 	}
-	cmd := exec.Command(p.FFmpeg, args...)
+	bps := parseBitrate(lim.VideoBitrate)
+	if probeErr == nil && probe.Duration > 0 {
+		fit, ok := fitVideoBitrate(lim.MaxBytes, probe.Duration, audioBps)
+		if !ok {
+			return "", videoLimitError(platform, lim.MaxBytes)
+		}
+		if fit < bps {
+			bps = fit
+		}
+	}
+	out := filepath.Join(p.TmpDir, src.ID+"_"+platform+".mp4")
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := p.transcodeVideo(src.Path, out, videoWidth(lim.VideoMaxW, bps), bps, withAudio); err != nil {
+			return "", err
+		}
+		st, err := os.Stat(out)
+		if err != nil {
+			return "", err
+		}
+		if st.Size() <= lim.MaxBytes {
+			return out, nil
+		}
+		next := int(float64(bps) * float64(lim.MaxBytes) / float64(st.Size()) * videoSizeMargin)
+		if next >= bps {
+			next = bps * 3 / 4
+		}
+		if next < minVideoBitrate {
+			break
+		}
+		bps = next
+	}
+	return "", videoLimitError(platform, lim.MaxBytes)
+}
+
+func (p *Processor) transcodeVideo(src, out string, width, videoBps int, withAudio bool) error {
+	bin := "ffmpeg"
+	if p != nil && p.FFmpeg != "" {
+		bin = p.FFmpeg
+	}
+	args := []string{
+		"-y", "-i", src,
+		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", width),
+		"-c:v", "libx264", "-preset", "veryfast",
+		"-b:v", strconv.Itoa(videoBps),
+		"-maxrate", strconv.Itoa(videoBps),
+		"-bufsize", strconv.Itoa(videoBps * 2),
+		"-movflags", "+faststart",
+	}
+	if withAudio {
+		args = append(args, "-c:a", "aac", "-b:a", "96k")
+	} else {
+		args = append(args, "-an")
+	}
+	args = append(args, out)
+	cmd := exec.Command(bin, args...)
 	stderr, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("ffmpeg: %w: %s", err, truncate(string(stderr), 400))
+		return fmt.Errorf("ffmpeg: %w: %s", err, truncate(string(stderr), 400))
 	}
-	st, err := os.Stat(out)
+	return nil
+}
+
+func (p *Processor) ProbeDuration(path string) (float64, error) {
+	info, err := p.probeMedia(path)
+	return info.Duration, err
+}
+
+func (p *Processor) probeMedia(path string) (mediaProbe, error) {
+	bin := "ffmpeg"
+	if p != nil && p.FFmpeg != "" {
+		bin = p.FFmpeg
+	}
+	cmd := exec.Command(bin, "-hide_banner", "-i", path)
+	out, _ := cmd.CombinedOutput()
+	return parseFFMPEGProbe(string(out))
+}
+
+type mediaProbe struct {
+	Duration float64
+	HasAudio bool
+}
+
+var durationRe = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
+
+func parseFFMPEGProbe(out string) (mediaProbe, error) {
+	m := durationRe.FindStringSubmatch(out)
+	if m == nil {
+		return mediaProbe{}, fmt.Errorf("duration not found")
+	}
+	h, _ := strconv.Atoi(m[1])
+	min, _ := strconv.Atoi(m[2])
+	sec, err := strconv.ParseFloat(m[3], 64)
 	if err != nil {
-		return "", err
+		return mediaProbe{}, err
 	}
-	if st.Size() > lim.MaxBytes {
-		return "", fmt.Errorf("%s video still exceeds %d bytes after compress", platform, lim.MaxBytes)
+	return mediaProbe{
+		Duration: float64(h)*3600 + float64(min)*60 + sec,
+		HasAudio: strings.Contains(out, "Audio:"),
+	}, nil
+}
+
+// fitVideoBitrate picks a video bitrate that should land under maxBytes.
+// ok is false when even the minimum watchable bitrate cannot fit.
+func fitVideoBitrate(maxBytes int64, durationSec float64, audioBps int) (int, bool) {
+	if durationSec < 0.1 || maxBytes <= 0 {
+		return 0, false
 	}
-	return out, nil
+	budget := float64(maxBytes) * 8 * videoSizeMargin
+	videoBits := budget - float64(audioBps)*durationSec
+	bps := int(videoBits / durationSec)
+	if bps < minVideoBitrate {
+		return bps, false
+	}
+	return bps, true
+}
+
+func videoWidth(maxW, bps int) int {
+	if maxW <= 0 {
+		maxW = 1280
+	}
+	w := maxW
+	switch {
+	case bps < 280_000:
+		w = 480
+	case bps < 550_000:
+		w = 640
+	case bps < 900_000:
+		w = 854
+	case bps < 1_400_000:
+		w = 960
+	}
+	if w > maxW {
+		return maxW
+	}
+	return w
+}
+
+func parseBitrate(s string) int {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return 2_000_000
+	}
+	mult := 1.0
+	switch {
+	case strings.HasSuffix(s, "k"):
+		mult = 1000
+		s = strings.TrimSuffix(s, "k")
+	case strings.HasSuffix(s, "m"):
+		mult = 1_000_000
+		s = strings.TrimSuffix(s, "m")
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
+		return 2_000_000
+	}
+	return int(f * mult)
+}
+
+func videoLimitError(platform string, maxBytes int64) error {
+	return fmt.Errorf("%s: видео больше лимита %s даже после сжатия. Укоротите ролик", platformName(platform), formatBytesMB(maxBytes))
+}
+
+func platformName(platform string) string {
+	switch platform {
+	case "telegram":
+		return "Telegram"
+	case "discord":
+		return "Discord"
+	case "lolka":
+		return "LOLKA"
+	case "vk":
+		return "VK"
+	case "max":
+		return "MAX"
+	default:
+		return platform
+	}
+}
+
+func formatBytesMB(n int64) string {
+	const mb = 1024 * 1024
+	if n > 0 && n%mb == 0 {
+		return fmt.Sprintf("%d МБ", n/mb)
+	}
+	return fmt.Sprintf("%.1f МБ", float64(n)/float64(mb))
 }
 
 func resizeLongEdge(img image.Image, maxEdge int) image.Image {
